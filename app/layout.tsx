@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
+import "./globals.css";
 
 export const metadata: Metadata = {
   title: "FindOrigin",
-  description: "Telegram-бот для поиска источников информации",
+  description: "Поиск источников: введите текст или ссылку",
 };
 
 export default function RootLayout({

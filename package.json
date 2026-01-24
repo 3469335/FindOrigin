@@ -3,24 +3,32 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "cross-env NODE_OPTIONS=--no-deprecation next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "cross-env NODE_OPTIONS=--no-deprecation next start",
     "lint": "next lint",
-    "webhook:set": "tsx scripts/set-webhook.ts"
+    "webhook:set": "tsx scripts/set-webhook.ts",
+    "test:ddg": "tsx scripts/test-ddg.ts",
+    "test:ddg-cookies": "tsx scripts/test-ddg-cookie-jar.ts",
+    "test:ddg-html": "tsx scripts/test-ddg-html.ts",
+    "test:ddg-lib": "tsx scripts/test-ddg-lib.ts",
+    "postinstall": "patch-package"
   },
   "dependencies": {
+    "duck-duck-scrape": "^2.2.7",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
+    "cross-env": "^7.0.3",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "^15.1.0",
+    "patch-package": "^8.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5"
   }

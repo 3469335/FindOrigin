@@ -1,7 +1,28 @@
 /**
  * Этап 5: поиск источников.
- * Интеграция поискового API, фильтрация по типу, сбор кандидатов.
+ * Интеграция поискового API (SerpAPI), fallback на DuckDuckGo (html.duckduckgo.com).
+ * Фильтрация по типу, сбор кандидатов.
  */
+
+/** Заголовки под Chrome. */
+const DDG_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "sec-ch-ua": '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+  "sec-ch-ua-mobile": "?0",
+  "sec-ch-ua-platform": '"Windows"',
+  "sec-fetch-dest": "document",
+  "sec-fetch-mode": "navigate",
+  "sec-fetch-site": "none",
+  "sec-fetch-user": "?1",
+  "Upgrade-Insecure-Requests": "1",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp;q=0.8,*/*;q=0.5",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
+const VQD_REGEX = /vqd=['"](\d+-\d+(?:-\d+)?)['"]/;
+const HTML_DDG_URL = "https://html.duckduckgo.com/html/";
 
 export interface SearchCandidate {
   url: string;
@@ -43,6 +64,54 @@ export function sortCandidatesByType(candidates: SearchCandidate[]): SearchCandi
   return [...candidates].sort((a, b) => PRIORITY[b.sourceType] - PRIORITY[a.sourceType]);
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Минимальный интервал между запросами к DuckDuckGo (чтобы избежать блокировки). */
+const DDG_COOLDOWN_MS = 15_000;
+let lastDdgCall = 0;
+
+function ddgCooldownCheck(): void {
+  const now = Date.now();
+  const elapsed = now - lastDdgCall;
+  if (lastDdgCall > 0 && elapsed < DDG_COOLDOWN_MS) {
+    const waitSec = Math.ceil((DDG_COOLDOWN_MS - elapsed) / 1000);
+    throw new Error(
+      `Слишком частые запросы к DuckDuckGo. Подождите ${waitSec} сек. или добавьте SEARCH_API_KEY (SerpAPI) для поиска через Google.`
+    );
+  }
+}
+
+async function getVqd(query: string): Promise<string> {
+  const url = `https://duckduckgo.com/?q=${encodeURIComponent(query)}&ia=web`;
+  const res = await fetch(url, {
+    headers: DDG_HEADERS,
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!res.ok) throw new Error(`VQD request ${res.status}`);
+  const html = await res.text();
+  const m = VQD_REGEX.exec(html);
+  if (!m?.[1]) throw new Error("Не удалось извлечь VQD");
+  return m[1];
+}
+
+function parseHtmlResults(html: string): { url: string; title: string }[] {
+  const out: { url: string; title: string }[] = [];
+  const re = /<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    const url = m[1].replace(/&amp;/g, "&").trim();
+    const raw = m[2]
+      .replace(/<[^>]+>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .trim();
+    if (url.startsWith("http") && raw) out.push({ url, title: raw.slice(0, 300) });
+  }
+  return out;
+}
+
 async function serpApiSearch(query: string, apiKey: string): Promise<SearchCandidate[]> {
   const res = await fetch(
     "https://serpapi.com/search.json?" +
@@ -68,23 +137,82 @@ async function serpApiSearch(query: string, apiKey: string): Promise<SearchCandi
     }));
 }
 
+async function duckDuckGoSearch(query: string, limit: number): Promise<SearchCandidate[]> {
+  ddgCooldownCheck();
+  lastDdgCall = Date.now();
+
+  const vqd = await getVqd(query);
+  await new Promise((r) => setTimeout(r, 2000));
+
+  const form = new URLSearchParams({
+    q: query,
+    b: "",
+    s: "0",
+    nextParams: "",
+    v: "l",
+    o: "json",
+    dc: "1",
+    api: "d.js",
+    vqd,
+    kl: "wt-wt",
+    df: "",
+  });
+
+  const res = await fetch(HTML_DDG_URL, {
+    method: "POST",
+    headers: {
+      ...DDG_HEADERS,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Referer: HTML_DDG_URL,
+      "Sec-Fetch-Site": "same-origin",
+    },
+    body: form.toString(),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!res.ok) throw new Error(`DuckDuckGo HTML ${res.status}`);
+  const html = await res.text();
+  if (/challenge-form|not a robot|captcha/i.test(html)) {
+    throw new Error("DuckDuckGo: CAPTCHA. Подождите или используйте SEARCH_API_KEY (SerpAPI).");
+  }
+  if (/your IP address|rate limit|blocked/i.test(html)) {
+    throw new Error("DuckDuckGo ограничил запросы. Подождите или используйте SEARCH_API_KEY (SerpAPI).");
+  }
+
+  const parsed = parseHtmlResults(html);
+  const rows = parsed.map((r) => ({
+    url: r.url,
+    title: r.title,
+    snippet: "",
+    sourceType: classifySource(r.url),
+  }));
+  return sortCandidatesByType(rows).slice(0, limit);
+}
+
 /**
- * Поиск через SerpAPI. При отсутствии API key возвращает пустой массив.
+ * Поиск: SerpAPI при наличии SEARCH_API_KEY, иначе DuckDuckGo (без ключа).
  */
 export async function search(
   query: string,
   options?: { apiKey?: string; limit?: number }
 ): Promise<SearchCandidate[]> {
   const apiKey = options?.apiKey ?? process.env.SEARCH_API_KEY;
-  if (!apiKey) return [];
-
-  const rows = await serpApiSearch(query, apiKey);
   const limit = options?.limit ?? 10;
-  return sortCandidatesByType(rows).slice(0, limit);
+
+  if (apiKey) {
+    const rows = await serpApiSearch(query, apiKey);
+    return sortCandidatesByType(rows).slice(0, limit);
+  }
+
+  return duckDuckGoSearch(query, limit);
 }
+
+/** Пауза между несколькими DDG-запросами (при useDdg у нас 1 запрос, не используется). */
+const DDG_DELAY_MS = 3000;
 
 /**
  * Сбор кандидатов по нескольким запросам, дедупликация по URL.
+ * При использовании DuckDuckGo (без API key) между запросами вставляется пауза.
  */
 export async function collectCandidates(
   queries: string[],
@@ -92,12 +220,19 @@ export async function collectCandidates(
 ): Promise<SearchCandidate[]> {
   const limitPer = options?.limitPerQuery ?? 5;
   const maxTotal = options?.maxTotal ?? 15;
+  const apiKey = options?.apiKey ?? process.env.SEARCH_API_KEY;
+  const useDdg = !apiKey;
+  const qs = useDdg ? queries.slice(0, 1) : queries;
+  const perQuery = useDdg ? Math.max(limitPer, 10) : limitPer;
   const seen = new Set<string>();
   const out: SearchCandidate[] = [];
 
-  for (const q of queries) {
+  for (let i = 0; i < qs.length; i++) {
     if (out.length >= maxTotal) break;
-    const rows = await search(q, { apiKey: options?.apiKey, limit: limitPer });
+    if (useDdg && i > 0) {
+      await delay(DDG_DELAY_MS + Math.random() * 500);
+    }
+    const rows = await search(qs[i], { apiKey: options?.apiKey, limit: perQuery });
     for (const c of rows) {
       if (seen.has(c.url)) continue;
       seen.add(c.url);
