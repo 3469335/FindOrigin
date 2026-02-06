@@ -1,5 +1,5 @@
 /**
- * Пайплайн: ввод → анализ → поиск. Этапы 3–5.
+ * Пайплайн: ввод → анализ → поиск → AI-ранжирование. Этапы 3–7.
  * Ответ пользователю через sendMessage (Telegram) или JSON (веб).
  */
 
@@ -7,12 +7,15 @@ import { sendMessage } from "@/lib/telegram";
 import { extractTextFromInput } from "@/lib/input";
 import { extractEntities, buildSearchQueries, type ExtractedEntities } from "@/lib/analyze";
 import { collectCandidates, type SearchCandidate } from "@/lib/search";
+import { rankSources, type RankedSource } from "@/lib/ai";
 
 export interface SearchResult {
   text: string;
   queries: string[];
   entities: ExtractedEntities;
   candidates: SearchCandidate[];
+  ranked: RankedSource[];
+  usedAi: boolean;
 }
 
 /**
@@ -36,17 +39,27 @@ export async function runSearch(rawInput: string): Promise<SearchResult> {
     maxTotal: 15,
   });
 
-  return { text, queries, entities, candidates };
+  const { ranked, usedAi } = await rankSources(text, candidates);
+
+  return { text, queries, entities, candidates, ranked, usedAi };
 }
+
+const TELEGRAM_MAX_MESSAGE_LENGTH = 4096;
 
 export async function processUpdate(chatId: number, rawInput: string): Promise<void> {
   try {
-    const { text, entities, candidates } = await runSearch(rawInput);
-    const reply = formatCandidatesReply(text, entities, candidates);
-    await sendMessage(chatId, reply);
+    const result = await runSearch(rawInput);
+    const { text, entities, candidates, ranked, usedAi } = result;
+    const messages = formatFinalReply(text, entities, candidates, ranked, usedAi);
+    for (const msg of messages) {
+      await sendMessage(chatId, msg);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Ошибка обработки.";
-    await sendMessage(chatId, `Ошибка: ${escapeHtml(msg)}`).catch(() => {});
+    console.error("[FindOrigin processUpdate]", e);
+    await sendMessage(chatId, `Ошибка: ${escapeHtml(msg)}`).catch((err) => {
+      console.error("[FindOrigin sendMessage]", err);
+    });
   }
 }
 
@@ -66,34 +79,69 @@ function formatEntitiesBlock(entities: ExtractedEntities): string {
   return parts.join("\n");
 }
 
-function formatCandidatesReply(
+function formatConfidence(level: string): string {
+  const map: Record<string, string> = {
+    high: "Высокая",
+    medium: "Средняя",
+    low: "Низкая",
+  };
+  return map[level] ?? level;
+}
+
+function formatFinalReply(
   inputPreview: string,
   entities: ExtractedEntities,
-  candidates: SearchCandidate[]
-): string {
+  candidates: SearchCandidate[],
+  ranked: RankedSource[],
+  usedAi: boolean
+): string[] {
   const pre = inputPreview.slice(0, 100) + (inputPreview.length > 100 ? "…" : "");
   const entitiesBlock = formatEntitiesBlock(entities);
-  let sourcesBlock: string;
+
+  let body = `<b>Запрос:</b> ${escapeHtml(pre)}\n\n`;
+  body += `<b>Извлечённые элементы:</b>\n${entitiesBlock}\n\n`;
+
   if (candidates.length === 0) {
-    sourcesBlock =
-      "Кандидатов не найдено. Попробуйте другой запрос или добавьте SEARCH_API_KEY (SerpAPI) для поиска через Google.";
+    body +=
+      "<b>Источники:</b>\nКандидатов не найдено. Попробуйте другой запрос или добавьте SEARCH_API_KEY (SerpAPI).";
   } else {
-    const list = candidates
-      .slice(0, 10)
-      .map(
-        (c) =>
-          `• <a href="${c.url.replace(/&/g, "&amp;")}">${escapeHtml(c.title || c.url)}</a> [${c.sourceType}]`
-      )
-      .join("\n");
-    sourcesBlock = `Найдено: ${candidates.length}\n\n${list}`;
+    body += `<b>Найдено кандидатов:</b> ${candidates.length}\n\n`;
+    body += "<b>Рекомендованные источники</b>";
+    if (usedAi) body += " (AI-анализ)";
+    body += ":\n\n";
+
+    if (ranked.length === 0) {
+      body += "AI не выбрал источники. Топ по типу:\n";
+      const fallback = candidates.slice(0, 3);
+      for (const c of fallback) {
+        body += `• <a href="${c.url.replace(/&/g, "&amp;")}">${escapeHtml(c.title || c.url)}</a> [${c.sourceType}] — Средняя\n`;
+      }
+    } else {
+      for (const r of ranked) {
+        body += `• <a href="${r.url.replace(/&/g, "&amp;")}">${escapeHtml(r.title)}</a>\n`;
+        body += `  Уверенность: ${formatConfidence(r.confidence)}`;
+        if (r.reason) body += ` — ${escapeHtml(r.reason)}`;
+        body += "\n";
+      }
+    }
   }
-  const aiNote = "AI-анализ будет выполнен на следующем этапе.";
-  return (
-    `<b>Запрос:</b> ${escapeHtml(pre)}\n\n` +
-    `<b>Извлечённые элементы:</b>\n${entitiesBlock}\n\n` +
-    `<b>Источники и тип:</b>\n${sourcesBlock}\n\n` +
-    aiNote
-  );
+
+  const chunks: string[] = [];
+  if (body.length <= TELEGRAM_MAX_MESSAGE_LENGTH) {
+    chunks.push(body);
+  } else {
+    const parts = body.split("\n\n");
+    let current = "";
+    for (const p of parts) {
+      if (current.length + p.length + 2 > TELEGRAM_MAX_MESSAGE_LENGTH && current) {
+        chunks.push(current.trim());
+        current = "";
+      }
+      current += (current ? "\n\n" : "") + p;
+    }
+    if (current) chunks.push(current.trim());
+  }
+  return chunks;
 }
 
 function escapeHtml(s: string): string {

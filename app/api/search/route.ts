@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, data: result });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Ошибка обработки.";
+    console.error("[FindOrigin /api/search]", e);
     return NextResponse.json({ success: false, error: msg }, { status: 200 });
   }
 }

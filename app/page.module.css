@@ -164,9 +164,11 @@
   text-decoration: underline;
 }
 
-.item_type {
-  margin-left: 0.5rem;
-  font-size: 0.8rem;
+.item_type,
+.item_confidence {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
   color: #71717a;
 }
 

@@ -10,6 +10,13 @@ type Candidate = {
   sourceType: string;
 };
 
+type RankedSource = {
+  url: string;
+  title: string;
+  confidence: string;
+  reason?: string;
+};
+
 type Entities = {
   claims: string[];
   dates: string[];
@@ -23,6 +30,8 @@ type SearchData = {
   queries: string[];
   entities: Entities;
   candidates: Candidate[];
+  ranked: RankedSource[];
+  usedAi: boolean;
 };
 
 export default function Home() {
@@ -120,36 +129,46 @@ export default function Home() {
                 !result.entities.links.length && <li>(не выделено)</li>}
             </ul>
 
-            <h3 className={styles.results_subtitle}>Источники и тип</h3>
+            <h3 className={styles.results_subtitle}>
+              Рекомендованные источники{result.usedAi ? " (AI-анализ)" : ""}
+            </h3>
             {result.candidates.length === 0 ? (
               <p className={styles.message}>
                 Кандидатов не найдено. Попробуйте другой запрос или добавьте
                 SEARCH_API_KEY (SerpAPI) для поиска через Google.
               </p>
-            ) : (
+            ) : result.ranked.length > 0 ? (
               <ul className={styles.list}>
-                {result.candidates.map((c, i) => (
+                {result.ranked.map((r, i) => (
                   <li key={i} className={styles.item}>
                     <a
-                      href={c.url}
+                      href={r.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className={styles.item_link}
                     >
-                      {c.title || c.url}
+                      {r.title || r.url}
                     </a>
-                    <span className={styles.item_type}>[{c.sourceType}]</span>
-                    {c.snippet && (
-                      <p className={styles.item_snippet}>{c.snippet}</p>
+                    <span className={styles.item_confidence}>
+                      Уверенность: {r.confidence === "high" ? "Высокая" : r.confidence === "low" ? "Низкая" : "Средняя"}
+                    </span>
+                    {r.reason && (
+                      <p className={styles.item_snippet}>{r.reason}</p>
                     )}
                   </li>
                 ))}
               </ul>
+            ) : (
+              <p className={styles.message}>
+                AI не выбрал источники. Найдено кандидатов: {result.candidates.length}.
+              </p>
             )}
 
-            <p className={styles.ai_note}>
-              AI-анализ будет выполнен на следующем этапе.
-            </p>
+            {result.candidates.length > 0 && result.ranked.length > 0 && result.candidates.length > 3 && (
+              <p className={styles.results_meta}>
+                Всего найдено кандидатов: {result.candidates.length}
+              </p>
+            )}
           </section>
         )}
 
