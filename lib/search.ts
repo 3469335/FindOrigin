@@ -21,7 +21,15 @@ const DDG_HEADERS: Record<string, string> = {
   "Accept-Language": "en-US,en;q=0.9",
 };
 
-const VQD_REGEX = /vqd=['"](\d+-\d+(?:-\d+)?)['"]/;
+/** Несколько паттернов — DuckDuckGo может менять формат. */
+const VQD_PATTERNS = [
+  /vqd=['"](\d+-\d+(?:-\d+)?)['"]/,
+  /vqd["']?\s*[:=]\s*["']?(\d+-\d+(?:-\d+)?)/,
+  /"vqd"\s*:\s*"(\d+-\d+(?:-\d+)?)"/,
+  /vqd\s*=\s*["'](\d+-\d+(?:-\d+)?)["']/,
+  /name=["']vqd["']\s+value=["'](\d+-\d+(?:-\d+)?)["']/,
+  /value=["'](\d+-\d+(?:-\d+)?)["']\s+name=["']vqd["']/,
+];
 const HTML_DDG_URL = "https://html.duckduckgo.com/html/";
 
 export interface SearchCandidate {
@@ -83,6 +91,14 @@ function ddgCooldownCheck(): void {
   }
 }
 
+function extractVqd(html: string): string | null {
+  for (const re of VQD_PATTERNS) {
+    const m = re.exec(html);
+    if (m?.[1]) return m[1];
+  }
+  return null;
+}
+
 async function getVqd(query: string): Promise<string> {
   const url = `https://duckduckgo.com/?q=${encodeURIComponent(query)}&ia=web`;
   const res = await fetch(url, {
@@ -91,9 +107,25 @@ async function getVqd(query: string): Promise<string> {
   });
   if (!res.ok) throw new Error(`VQD request ${res.status}`);
   const html = await res.text();
-  const m = VQD_REGEX.exec(html);
-  if (!m?.[1]) throw new Error("Не удалось извлечь VQD");
-  return m[1];
+
+  if (/challenge-form|not a robot|captcha/i.test(html)) {
+    throw new Error(
+      "DuckDuckGo показал CAPTCHA. Подождите или добавьте SEARCH_API_KEY (SerpAPI) для поиска через Google."
+    );
+  }
+  if (/your IP address|your user agent/i.test(html)) {
+    throw new Error(
+      "DuckDuckGo заблокировал запрос. Подождите или используйте SEARCH_API_KEY (SerpAPI)."
+    );
+  }
+
+  const vqd = extractVqd(html);
+  if (!vqd) {
+    throw new Error(
+      "Не удалось извлечь VQD. DuckDuckGo мог изменить страницу. Добавьте SEARCH_API_KEY (SerpAPI) для стабильного поиска."
+    );
+  }
+  return vqd;
 }
 
 function parseHtmlResults(html: string): { url: string; title: string }[] {
