@@ -54,6 +54,13 @@ https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://ваш-проект.v
 
 При использовании `TELEGRAM_WEBHOOK_SECRET` в `setWebhook` нужно передать `secret_token` (скрипт `webhook:set` делает это сам).
 
+## Бот не отвечает?
+
+1. **Webhook на прод:** `WEBHOOK_URL=https://ваш-проект.vercel.app npm run webhook:set` (после деплоя).
+2. **Переменные на Vercel:** `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY` (опционально).
+3. **Текст со ссылками:** бот отвечает только если в сообщении есть URL (https://...).
+4. **Логи:** Vercel Dashboard → Logs — смотреть ошибки `[webhook]` или `[FindOrigin]`.
+
 ## Структура
 
 - `app/api/webhook/telegram` — приём updates от Telegram, быстрый 200, фоновая обработка

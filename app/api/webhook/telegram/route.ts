@@ -3,6 +3,9 @@ import type { TelegramUpdate } from "@/lib/telegram";
 import { parseMessage } from "@/lib/telegram";
 import { processUpdate } from "@/lib/pipeline";
 
+/** Таймаут 60 с — пайплайн (AI) может выполняться до минуты. */
+export const maxDuration = 60;
+
 export async function POST(request: NextRequest) {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (secret) {
@@ -24,9 +27,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 
-  processUpdate(parsed.chatId, parsed.text).catch((err) => {
+  try {
+    await processUpdate(parsed.chatId, parsed.text);
+  } catch (err) {
     console.error("[webhook] processUpdate error:", err);
-  });
+  }
 
   return NextResponse.json({ ok: true }, { status: 200 });
 }
