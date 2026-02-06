@@ -8,17 +8,11 @@
     "start": "cross-env NODE_OPTIONS=--no-deprecation next start",
     "lint": "next lint",
     "webhook:set": "tsx scripts/set-webhook.ts",
-    "test:ddg": "tsx scripts/test-ddg.ts",
-    "test:ddg-cookies": "tsx scripts/test-ddg-cookie-jar.ts",
-    "test:ddg-html": "tsx scripts/test-ddg-html.ts",
-    "test:ddg-lib": "tsx scripts/test-ddg-lib.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "tsx scripts/integration-test.ts",
-    "postinstall": "patch-package"
+    "test:integration": "tsx scripts/integration-test.ts"
   },
   "dependencies": {
-    "duck-duck-scrape": "^2.2.7",
     "next": "^15.1.0",
     "openai": "^6.17.0",
     "react": "^19.0.0",
@@ -32,7 +26,6 @@
     "cross-env": "^7.0.3",
     "eslint": "^9",
     "eslint-config-next": "^15.1.0",
-    "patch-package": "^8.0.0",
     "tsx": "^4.19.0",
     "typescript": "^5",
     "vitest": "^4.0.18"

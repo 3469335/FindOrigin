@@ -27,7 +27,6 @@ type Entities = {
 
 type SearchData = {
   text: string;
-  queries: string[];
   entities: Entities;
   candidates: Candidate[];
   ranked: RankedSource[];
@@ -46,7 +45,7 @@ export default function Home() {
     setResult(null);
     const text = input.trim();
     if (!text) {
-      setError("Введите текст или ссылку для поиска источников.");
+      setError("Введите текст со ссылками для AI-анализа.");
       return;
     }
     setLoading(true);
@@ -58,7 +57,7 @@ export default function Home() {
       });
       const json = (await res.json()) as { success: boolean; data?: SearchData; error?: string };
       if (!json.success) {
-        setError(json.error ?? "Ошибка поиска.");
+        setError(json.error ?? "Ошибка анализа.");
         return;
       }
       if (json.data) setResult(json.data);
@@ -74,20 +73,20 @@ export default function Home() {
       <div className={styles.container}>
         <h1 className={styles.title}>FindOrigin</h1>
         <p className={styles.subtitle}>
-          Введите текст или ссылку на пост — найдём возможные источники.
+          Введите текст со ссылками — AI проанализирует и ранжирует источники.
         </p>
 
         <form onSubmit={handleSubmit} className={styles.form}>
           <textarea
             className={styles.input}
-            placeholder="Текст новости, цитата или ссылка на Telegram-пост…"
+            placeholder="Текст со ссылками (URL) для AI-анализа источников…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             rows={4}
             disabled={loading}
           />
           <button type="submit" className={styles.btn} disabled={loading}>
-            {loading ? "Поиск…" : "Найти источники"}
+            {loading ? "Анализ…" : "Анализировать"}
           </button>
         </form>
 
@@ -134,8 +133,7 @@ export default function Home() {
             </h3>
             {result.candidates.length === 0 ? (
               <p className={styles.message}>
-                Кандидатов не найдено. Попробуйте другой запрос или добавьте
-                SEARCH_API_KEY (SerpAPI) для поиска через Google.
+                Ссылок в тексте не найдено. Добавьте URL для AI-анализа.
               </p>
             ) : result.ranked.length > 0 ? (
               <ul className={styles.list}>

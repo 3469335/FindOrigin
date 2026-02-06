@@ -1,47 +1,64 @@
 /**
- * Пайплайн: ввод → анализ → поиск → AI-ранжирование. Этапы 3–7.
- * Ответ пользователю через sendMessage (Telegram) или JSON (веб).
+ * Пайплайн: ввод → анализ → AI-ранжирование ссылок из текста.
+ * Поиск (SerpAPI, DuckDuckGo) удалён. Источники — только ссылки из ввода.
  */
 
 import { sendMessage } from "@/lib/telegram";
 import { extractTextFromInput } from "@/lib/input";
-import { extractEntities, buildSearchQueries, type ExtractedEntities } from "@/lib/analyze";
-import { collectCandidates, type SearchCandidate } from "@/lib/search";
+import { extractEntities, type ExtractedEntities } from "@/lib/analyze";
+import { classifySource, sortCandidatesByType, type SearchCandidate } from "@/lib/search";
 import { rankSources, type RankedSource } from "@/lib/ai";
 
 export interface SearchResult {
   text: string;
-  queries: string[];
   entities: ExtractedEntities;
   candidates: SearchCandidate[];
   ranked: RankedSource[];
   usedAi: boolean;
 }
 
+function linksToCandidates(links: string[]): SearchCandidate[] {
+  const seen = new Set<string>();
+  const out: SearchCandidate[] = [];
+  for (const url of links) {
+    const u = url.trim();
+    if (!u.startsWith("http")) continue;
+    if (seen.has(u)) continue;
+    seen.add(u);
+    try {
+      const title = new URL(u).hostname.replace(/^www\./, "");
+      out.push({
+        url: u,
+        title,
+        snippet: "",
+        sourceType: classifySource(u),
+      });
+    } catch {
+      out.push({ url: u, title: u, snippet: "", sourceType: classifySource(u) });
+    }
+  }
+  return sortCandidatesByType(out).slice(0, 15);
+}
+
 /**
- * Выполнить поиск по введённому тексту. Используется и в Telegram, и в веб-API.
+ * Обработать текст: извлечь сущности и ссылки, AI ранжирует ссылки.
  */
 export async function runSearch(rawInput: string): Promise<SearchResult> {
   const text = await extractTextFromInput(rawInput);
   if (!text) {
-    throw new Error("Отправьте текст или ссылку на пост Telegram.");
+    throw new Error("Отправьте текст с ссылками для AI-анализа.");
   }
 
   const entities = extractEntities(text);
-  const queries = buildSearchQueries(entities, text);
+  const candidates = linksToCandidates(entities.links);
 
-  if (!queries.length) {
-    throw new Error("Не удалось выделить поисковые запросы. Попробуйте более развёрнутый текст.");
+  if (!candidates.length) {
+    throw new Error("В тексте нет ссылок. Добавьте URL для анализа источников.");
   }
-
-  const candidates = await collectCandidates(queries, {
-    limitPerQuery: 5,
-    maxTotal: 15,
-  });
 
   const { ranked, usedAi } = await rankSources(text, candidates);
 
-  return { text, queries, entities, candidates, ranked, usedAi };
+  return { text, entities, candidates, ranked, usedAi };
 }
 
 const TELEGRAM_MAX_MESSAGE_LENGTH = 4096;
@@ -102,8 +119,7 @@ function formatFinalReply(
   body += `<b>Извлечённые элементы:</b>\n${entitiesBlock}\n\n`;
 
   if (candidates.length === 0) {
-    body +=
-      "<b>Источники:</b>\nКандидатов не найдено. Попробуйте другой запрос или добавьте SEARCH_API_KEY (SerpAPI).";
+    body += "<b>Источники:</b>\nСсылок в тексте не найдено. Добавьте URL для AI-анализа.";
   } else {
     body += `<b>Найдено кандидатов:</b> ${candidates.length}\n\n`;
     body += "<b>Рекомендованные источники</b>";

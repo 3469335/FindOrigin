@@ -2,17 +2,17 @@
  * Интеграционный тест: runSearch → проверка структуры результата.
  * Запуск: npm run test:integration
  *
- * Требует: сеть (поиск), опционально OPENAI_API_KEY для AI-ранжирования.
+ * Требует: текст со ссылками, опционально OPENAI_API_KEY для AI-ранжирования.
  */
 
 async function run() {
-  process.env.SEARCH_API_KEY = process.env.SEARCH_API_KEY ?? "";
   process.env.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? "";
 
   const { runSearch } = await import("../lib/pipeline");
-  const text = "Путин подписал указ о мобилизации 21 сентября 2022 года";
+  const text =
+    "Новость о мобилизации. См. https://ria.ru/20220921/mobilizatsiya-1817875434.html и https://tass.ru/politika/15772735";
 
-  console.log("[integration] runSearch:", text.slice(0, 50) + "...");
+  console.log("[integration] runSearch: текст со ссылками");
   const t0 = Date.now();
   const result = await runSearch(text);
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
@@ -28,7 +28,6 @@ async function run() {
   }
 
   console.log(`[integration] OK in ${elapsed}s:`, {
-    queries: result.queries.length,
     candidates: result.candidates.length,
     ranked: result.ranked.length,
     usedAi: result.usedAi,
