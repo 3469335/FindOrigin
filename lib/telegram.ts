@@ -1,5 +1,12 @@
 const TELEGRAM_API = "https://api.telegram.org";
 
+export type MessageEntity = {
+  type: string;
+  offset: number;
+  length: number;
+  url?: string;
+};
+
 export type TelegramUpdate = {
   update_id: number;
   message?: {
@@ -9,7 +16,7 @@ export type TelegramUpdate = {
     date: number;
     text?: string;
     caption?: string;
-    entities?: { type: string; offset: number; length: number }[];
+    entities?: MessageEntity[];
   };
 };
 
@@ -40,10 +47,38 @@ export async function sendMessage(
   return data;
 }
 
+/**
+ * Извлечь URL из entities. Для text_link — entity.url; для url — подстрока текста.
+ */
+function extractUrlsFromEntities(
+  text: string,
+  entities?: MessageEntity[]
+): string[] {
+  if (!entities?.length) return [];
+  const urls: string[] = [];
+  for (const e of entities) {
+    if (e.type === "text_link" && e.url) {
+      urls.push(e.url.trim());
+    } else if (e.type === "url") {
+      const u = text.slice(e.offset, e.offset + e.length).trim();
+      if (u.startsWith("http")) urls.push(u);
+    }
+  }
+  return urls;
+}
+
 export function parseMessage(update: TelegramUpdate): { chatId: number; text: string } | null {
   const msg = update.message;
   if (!msg?.chat) return null;
-  const text = msg.text ?? msg.caption ?? "";
+  let text = msg.text ?? msg.caption ?? "";
   if (!text.trim()) return null;
-  return { chatId: msg.chat.id, text: text.trim() };
+
+  const entityUrls = extractUrlsFromEntities(text, msg.entities);
+  if (entityUrls.length) {
+    text = text.trim() + "\n" + entityUrls.join(" ");
+  } else {
+    text = text.trim();
+  }
+
+  return { chatId: msg.chat.id, text };
 }
