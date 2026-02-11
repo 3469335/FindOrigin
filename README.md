@@ -54,6 +54,18 @@ https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://ваш-проект.v
 
 При использовании `TELEGRAM_WEBHOOK_SECRET` в `setWebhook` нужно передать `secret_token` (скрипт `webhook:set` делает это сам).
 
+## Telegram Mini App
+
+UI-слой для бота: `/miniapp` — тот же функционал (текст со ссылками → AI-анализ) в виде Mini App внутри Telegram.
+
+**Установка кнопки меню** (открывает Mini App):
+
+```bash
+MINIAPP_URL=https://ваш-проект.vercel.app npm run menu:set
+```
+
+Или в BotFather: @BotFather → Bot Settings → Menu Button → Configure menu button → URL: `https://ваш-проект.vercel.app/miniapp`.
+
 ## Бот не отвечает?
 
 1. **Webhook на прод:** `WEBHOOK_URL=https://ваш-проект.vercel.app npm run webhook:set` (после деплоя).

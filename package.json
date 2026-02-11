@@ -8,6 +8,7 @@
     "start": "cross-env NODE_OPTIONS=--no-deprecation next start",
     "lint": "next lint",
     "webhook:set": "tsx scripts/set-webhook.ts",
+    "menu:set": "tsx scripts/set-menu-button.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "tsx scripts/integration-test.ts"
